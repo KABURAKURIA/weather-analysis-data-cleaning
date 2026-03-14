@@ -52,15 +52,12 @@ local_css()
 # ==========================================
 class UltimateWeatherCleaner:
     def __init__(self, file_obj):
-        self.log =[]
-        self.log.append("--- Loading Raw Data ---")
         if file_obj.name.endswith('.csv'):
             self.raw_df = pd.read_csv(file_obj, header=None, low_memory=False)
         else:
             self.raw_df = pd.read_excel(file_obj, header=None)
 
     def smart_structural_parsing(self):
-        self.log.append("--- Smart Structural Parsing (Bypassing 2014 anomaly) ---")
         parsed_data =[]
         col_map = {}
         for row in self.raw_df.itertuples(index=False):
@@ -183,7 +180,7 @@ if uploaded_file is not None:
         st.dataframe(clean_df.head(100))
         st.download_button("Download Clean CSV", data=clean_df.to_csv().encode('utf-8'), file_name="Cleaned_Weather.csv", mime="text/csv")
         
-        st.subheader("ML Normalized Data [0,1] (FR-10)")
+        st.subheader("ML Normalized Data[0,1] (FR-10)")
         st.dataframe(norm_df.head(100))
         st.download_button("Download Normalized CSV", data=norm_df.to_csv().encode('utf-8'), file_name="Normalized_Weather.csv", mime="text/csv")
 
@@ -229,11 +226,14 @@ if uploaded_file is not None:
             fig_corr.update_layout(**layout_transparent)
             st.plotly_chart(fig_corr, use_container_width=True)
 
-        # 9. Wind Direction Frequencies
+        # 9. Wind Direction Frequencies (Fixed Bug)
         with c4:
             st.markdown("##### 9. Prevailing Wind Directions")
-            wind_counts = clean_df['Wind_Dir_Label'].value_dict() if 'Wind_Dir_Label' in clean_df.columns else clean_df['Wind_Dir_Label'].value_counts()
-            fig_wind = px.bar(x=wind_counts.index, y=wind_counts.values, color_discrete_sequence=['#a29bfe'])
+            if 'Wind_Dir_Label' in clean_df.columns:
+                wind_counts = clean_df['Wind_Dir_Label'].value_counts()
+                fig_wind = px.bar(x=wind_counts.index, y=wind_counts.values, color_discrete_sequence=['#a29bfe'])
+            else:
+                fig_wind = px.bar(title="Data Unavailable")
             fig_wind.update_layout(**layout_transparent)
             st.plotly_chart(fig_wind, use_container_width=True)
             
