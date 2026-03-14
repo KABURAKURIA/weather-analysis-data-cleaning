@@ -2,45 +2,79 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import plotly.graph_objects as go
 import warnings
 
 warnings.filterwarnings('ignore')
 
 # ==========================================
-# 1. GLASSMORPHIC UI SETTINGS
+# 1. PREMIUM GLASSMORPHIC UI SETTINGS
 # ==========================================
-st.set_page_config(page_title="Ultimate Weather Cleaner", layout="wide")
+st.set_page_config(page_title="Ultimate Weather Cleaner", layout="wide", page_icon="🌩️")
 
 def local_css():
     st.markdown("""
     <style>
-    /* Glassmorphic Background */
-    .stApp {
-        background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-        color: white;
+    /* 1. Dynamic Stormy Gradient Background */
+    .stApp, [data-testid="stAppViewContainer"] {
+        background: linear-gradient(135deg, #0f2027 0%, #203a43 50%, #2c5364 100%) !important;
+        background-attachment: fixed !important;
     }
     
-    /* Glassmorphic Containers */
-    .css-1r6slb0, .css-18e3th9, .css-1d391kg {
+    /* Make Streamlit Header Transparent */
+    [data-testid="stHeader"] {
+        background-color: transparent !important;
+    }
+
+    /* 2. Glassmorphic Containers (Metrics, Uploaders, Tabs) */
+    [data-testid="stMetric"],[data-testid="stFileUploader"], 
+    .stTabs [data-baseweb="tab-list"],[data-testid="stDataFrame"] {
         background: rgba(255, 255, 255, 0.05) !important;
         backdrop-filter: blur(15px) !important;
         -webkit-backdrop-filter: blur(15px) !important;
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
         border-radius: 15px !important;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        padding: 20px;
+        padding: 15px;
         box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.3) !important;
     }
 
-    /* Text Colors */
-    h1, h2, h3, p, label, .st-emotion-cache-10trblm {
-        color: white !important;
+    /* 3. Text Readability (Drop Shadows for high contrast) */
+    h1, h2, h3, h4, h5, h6, p, span, label, div[data-testid="stMetricValue"] {
+        color: #ffffff !important;
+        text-shadow: 1px 1px 3px rgba(0,0,0,0.6) !important;
+    }
+
+    /* 4. PERFECT BUTTONS (Fixes the invisible text issue) */
+    div.stButton > button {
+        background: rgba(255, 255, 255, 0.15) !important;
+        color: #ffffff !important;
+        border: 1px solid rgba(255, 255, 255, 0.4) !important;
+        backdrop-filter: blur(10px) !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        padding: 10px 20px !important;
+        transition: all 0.3s ease-in-out !important;
+        text-shadow: none !important; /* Keep button text crisp */
     }
     
-    /* DataFrame styling */
-    [data-testid="stDataFrame"] {
-        background: rgba(255, 255, 255, 0.1);
-        border-radius: 10px;
+    /* Button Hover Animation */
+    div.stButton > button:hover {
+        background: rgba(255, 255, 255, 0.3) !important;
+        border: 1px solid rgba(255, 255, 255, 0.7) !important;
+        transform: translateY(-3px) !important;
+        box-shadow: 0 8px 20px rgba(0,212,255, 0.4) !important;
+        color: #ffffff !important;
+    }
+
+    /* Keep Download Buttons Visible */
+    div.stDownloadButton > button {
+        background: linear-gradient(90deg, #00d2ff 0%, #3a7bd5 100%) !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        box-shadow: 0 4px 15px rgba(0, 210, 255, 0.4) !important;
+    }
+    div.stDownloadButton > button:hover {
+        transform: scale(1.05) !important;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -61,7 +95,7 @@ class UltimateWeatherCleaner:
         parsed_data =[]
         col_map = {}
         for row in self.raw_df.itertuples(index=False):
-            row_strs = [str(x).strip().lower() for x in row]
+            row_strs =[str(x).strip().lower() for x in row]
             
             if 'year' in row_strs and ('date' in row_strs or 'month' in row_strs):
                 col_map = {
@@ -123,7 +157,7 @@ class UltimateWeatherCleaner:
         self.df.set_index('Datetime', inplace=True)
         self.df = self.df[~self.df.index.duplicated(keep='first')].sort_index()
 
-        # 3. RSD Constraints (FR-09)
+        # 3. RSD Constraints
         mask = self.df['Temp_Min'] > self.df['Temp_Max']
         self.df.loc[mask, ['Temp_Min', 'Temp_Max']] = self.df.loc[mask, ['Temp_Max', 'Temp_Min']].values
         
@@ -134,18 +168,18 @@ class UltimateWeatherCleaner:
             lower, upper = Q1 - 1.5 * IQR, Q3 + 1.5 * IQR
             self.df.loc[(self.df[col] < lower) | (self.df[col] > upper), col] = np.nan
 
-        # 5. Missing Value Imputation (FR-08)
+        # 5. Missing Value Imputation
         self.df = self.df.assign(Wind_Dir_Label=self.df['Wind_Dir_Label'].ffill().bfill())
         self.df = self.df.interpolate(method='time', limit_direction='both').ffill().bfill()
 
-        # 6. Feature Engineering (Cyclical Encoding)
+        # 6. Feature Engineering
         dir_map = {'N':0, 'NE':45, 'E':90, 'SE':135, 'S':180, 'SW':225, 'W':270, 'NW':315}
         wind_deg = self.df['Wind_Dir_Label'].map(dir_map).fillna(0)
         self.df['Wind_Dir_Sin'] = np.sin(2 * np.pi * wind_deg / 360)
         self.df['Wind_Dir_Cos'] = np.cos(2 * np.pi * wind_deg / 360)
         self.df['Month_Sin'] = np.sin(2 * np.pi * self.df.index.month / 12)
 
-        # 7. Normalization (FR-10)
+        # 7. Normalization
         self.normalized_df = self.df.copy()
         for col in self.normalized_df.select_dtypes(include=[np.number]).columns:
             min_val, max_val = self.normalized_df[col].min(), self.normalized_df[col].max()
@@ -160,129 +194,117 @@ class UltimateWeatherCleaner:
         return self.df, self.normalized_df
 
 # ==========================================
-# 3. STREAMLIT APP LAYOUT & LOGIC
+# 3. APP EXECUTION
 # ==========================================
-st.title("🌩️ Integrative ML & IoT Weather Data Cleaner")
-st.markdown("Developed for Western Region of Kenya (RSD Compliant)")
+st.title("🌩️ Integrative ML Weather Data Cleaner")
+st.markdown("Automated processing and formatting for the Western Region of Kenya (RSD Compliant)")
 
-uploaded_file = st.file_uploader("Upload Messy Weather CSV/Excel", type=['csv', 'xlsx'])
+uploaded_file = st.file_uploader("Drop your raw messy CSV/Excel file here", type=['csv', 'xlsx'])
 
 if uploaded_file is not None:
-    with st.spinner("Executing Smart Structural Parsing & Pipeline..."):
+    with st.spinner("Parsing dynamic structure & repairing datasets..."):
         cleaner = UltimateWeatherCleaner(uploaded_file)
         clean_df, norm_df = cleaner.execute()
+        
     st.success("✅ Data Cleaned, Engineered, and Normalized Successfully!")
 
-    tab1, tab2 = st.tabs(["🗄️ Cleaned Datasets", "📈 15 Weather Analytics & Graphs"])
+    tab1, tab2 = st.tabs(["🗄️ Datasets & Downloads", "📈 15 Weather Analytics & Graphs"])
 
     with tab1:
-        st.subheader("Standard Cleaned Data")
-        st.dataframe(clean_df.head(100))
-        st.download_button("Download Clean CSV", data=clean_df.to_csv().encode('utf-8'), file_name="Cleaned_Weather.csv", mime="text/csv")
+        c_left, c_right = st.columns(2)
+        with c_left:
+            st.markdown("### 🔹 Standard Cleaned Data")
+            st.dataframe(clean_df.head(50), use_container_width=True)
+            st.download_button("📥 Download Clean CSV", data=clean_df.to_csv().encode('utf-8'), file_name="Cleaned_Weather.csv", mime="text/csv")
         
-        st.subheader("ML Normalized Data[0,1] (FR-10)")
-        st.dataframe(norm_df.head(100))
-        st.download_button("Download Normalized CSV", data=norm_df.to_csv().encode('utf-8'), file_name="Normalized_Weather.csv", mime="text/csv")
+        with c_right:
+            st.markdown("### 🔹 ML Normalized [0,1]")
+            st.dataframe(norm_df.head(50), use_container_width=True)
+            st.download_button("📥 Download Normalized CSV", data=norm_df.to_csv().encode('utf-8'), file_name="Normalized_Weather.csv", mime="text/csv")
 
     with tab2:
-        st.markdown("### Meteorological Data Quality & Insights")
+        st.markdown("### Meteorological Insights Dashboard")
         
         # --- 5 CALCULATION METRICS ---
         col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("1. Clean Records", f"{len(clean_df):,}")
-        col2.metric("2. Imputation Rate", "100%")
-        col3.metric("3. Max Temp Peak", f"{clean_df['Temp_Max'].max():.1f} °C")
-        col4.metric("4. Min Temp Base", f"{clean_df['Temp_Min'].min():.1f} °C")
-        col5.metric("5. Total Rainfall", f"{clean_df['Rainfall_mm'].sum():,.0f} mm")
+        col1.metric("1. Usable Records", f"{len(clean_df):,}")
+        col2.metric("2. Imputation Success", "100%")
+        col3.metric("3. Peak Temp", f"{clean_df['Temp_Max'].max():.1f} °C")
+        col4.metric("4. Lowest Temp", f"{clean_df['Temp_Min'].min():.1f} °C")
+        col5.metric("5. Total Rain", f"{clean_df['Rainfall_mm'].sum():,.0f} mm")
         
-        # Transparency layout config for Plotly
         layout_transparent = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
 
         st.divider()
 
         c1, c2 = st.columns(2)
-        
-        # 6. Time Series - Temperature
         with c1:
             st.markdown("##### 6. Temp Max & Min Trends")
-            fig_temp = px.line(clean_df, y=['Temp_Max', 'Temp_Min'], color_discrete_sequence=['#ff4b4b', '#00d4ff'])
+            fig_temp = px.line(clean_df, y=['Temp_Max', 'Temp_Min'], color_discrete_sequence=['#ff0844', '#00f2fe'])
             fig_temp.update_layout(**layout_transparent)
             st.plotly_chart(fig_temp, use_container_width=True)
 
-        # 7. Rainfall Distribution
         with c2:
             st.markdown("##### 7. Daily Rainfall Distribution")
-            fig_rain = px.histogram(clean_df[clean_df['Rainfall_mm']>0], x="Rainfall_mm", nbins=40, color_discrete_sequence=['#00d4ff'])
+            fig_rain = px.histogram(clean_df[clean_df['Rainfall_mm']>0], x="Rainfall_mm", nbins=40, color_discrete_sequence=['#00f2fe'])
             fig_rain.update_layout(**layout_transparent)
             st.plotly_chart(fig_rain, use_container_width=True)
 
         c3, c4 = st.columns(2)
-        
-        # 8. Correlation Heatmap (FR-12 Feature Selection Context)
         with c3:
             st.markdown("##### 8. Feature Correlation Matrix")
             corr = clean_df.select_dtypes(include=[np.number]).corr()
-            fig_corr = px.imshow(corr, color_continuous_scale='RdBu_r')
+            fig_corr = px.imshow(corr, color_continuous_scale='Turbo') # Vibrant color scale
             fig_corr.update_layout(**layout_transparent)
             st.plotly_chart(fig_corr, use_container_width=True)
 
-        # 9. Wind Direction Frequencies (Fixed Bug)
         with c4:
             st.markdown("##### 9. Prevailing Wind Directions")
             if 'Wind_Dir_Label' in clean_df.columns:
                 wind_counts = clean_df['Wind_Dir_Label'].value_counts()
-                fig_wind = px.bar(x=wind_counts.index, y=wind_counts.values, color_discrete_sequence=['#a29bfe'])
+                fig_wind = px.bar(x=wind_counts.index, y=wind_counts.values, color_discrete_sequence=['#f9d423'])
             else:
                 fig_wind = px.bar(title="Data Unavailable")
             fig_wind.update_layout(**layout_transparent)
             st.plotly_chart(fig_wind, use_container_width=True)
             
         c5, c6 = st.columns(2)
-        
-        # 10. Outlier Detection Boxplots
         with c5:
-            st.markdown("##### 10. Sensor Data Dispersion (Outlier Bounds)")
-            fig_box = px.box(clean_df, y=['Temp_Max', 'Temp_Min', 'Humidity_0900'], points="all")
+            st.markdown("##### 10. Sensor Data Dispersion")
+            fig_box = px.box(clean_df, y=['Temp_Max', 'Temp_Min', 'Humidity_0900'], points="all", color_discrete_sequence=['#00b09b'])
             fig_box.update_layout(**layout_transparent)
             st.plotly_chart(fig_box, use_container_width=True)
 
-        # 11. Sunshine vs Temperature Scatter
         with c6:
-            st.markdown("##### 11. Sunshine Hrs vs Temp Max")
-            fig_scat = px.scatter(clean_df, x="Sunshine_Hrs", y="Temp_Max", opacity=0.5, color="Humidity_1500")
+            st.markdown("##### 11. Sunshine vs Temp Max")
+            fig_scat = px.scatter(clean_df, x="Sunshine_Hrs", y="Temp_Max", color="Humidity_1500", color_continuous_scale='Plasma')
             fig_scat.update_layout(**layout_transparent)
             st.plotly_chart(fig_scat, use_container_width=True)
 
         c7, c8 = st.columns(2)
-        
-        # 12. Monthly Average Temperatures
         with c7:
-            st.markdown("##### 12. Avg Monthly Temps")
+            st.markdown("##### 12. Monthly Avg Temperatures")
             monthly_temp = clean_df.groupby(clean_df.index.month)['Temp_Max'].mean()
-            fig_m_temp = px.bar(x=monthly_temp.index, y=monthly_temp.values, labels={'x':'Month', 'y':'Avg Temp Max'})
-            fig_m_temp.update_layout(**layout_transparent)
+            fig_m_temp = px.bar(x=monthly_temp.index, y=monthly_temp.values, color_discrete_sequence=['#ff0844'])
+            fig_m_temp.update_layout(**layout_transparent, xaxis_title="Month", yaxis_title="Temp °C")
             st.plotly_chart(fig_m_temp, use_container_width=True)
 
-        # 13. Humidity Fluctuations
         with c8:
             st.markdown("##### 13. Humidity (0900 vs 1500)")
-            fig_hum = px.line(clean_df, y=['Humidity_0900', 'Humidity_1500'])
+            fig_hum = px.line(clean_df, y=['Humidity_0900', 'Humidity_1500'], color_discrete_sequence=['#f9d423', '#00f2fe'])
             fig_hum.update_layout(**layout_transparent)
             st.plotly_chart(fig_hum, use_container_width=True)
             
         c9, c10 = st.columns(2)
-        
-        # 14. Yearly Cumulative Rainfall
         with c9:
             st.markdown("##### 14. Yearly Cumulative Rainfall")
             yearly_rain = clean_df.groupby(clean_df.index.year)['Rainfall_mm'].sum()
-            fig_y_rain = px.bar(x=yearly_rain.index, y=yearly_rain.values, labels={'x':'Year', 'y':'Total Rain (mm)'})
-            fig_y_rain.update_layout(**layout_transparent)
+            fig_y_rain = px.bar(x=yearly_rain.index, y=yearly_rain.values, color_discrete_sequence=['#00f2fe'])
+            fig_y_rain.update_layout(**layout_transparent, xaxis_title="Year", yaxis_title="Total Rain (mm)")
             st.plotly_chart(fig_y_rain, use_container_width=True)
 
-        # 15. Wind Speed Trend
         with c10:
             st.markdown("##### 15. Wind Speed Tracking")
-            fig_wind_ts = px.area(clean_df, y='Wind_Speed', color_discrete_sequence=['#55efc4'])
+            fig_wind_ts = px.area(clean_df, y='Wind_Speed', color_discrete_sequence=['#00b09b'])
             fig_wind_ts.update_layout(**layout_transparent)
             st.plotly_chart(fig_wind_ts, use_container_width=True)
