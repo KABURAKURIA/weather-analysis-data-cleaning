@@ -85,11 +85,12 @@ local_css()
 # 2. THE ULTIMATE CLEANING ENGINE
 # ==========================================
 class UltimateWeatherCleaner:
-    def __init__(self, file_obj):
+    def __init__(self, file_obj, options=None):
         if file_obj.name.endswith('.csv'):
             self.raw_df = pd.read_csv(file_obj, header=None, low_memory=False)
         else:
             self.raw_df = pd.read_excel(file_obj, header=None)
+        self.options = options or {}
 
     def smart_structural_parsing(self):
         parsed_data =[]
@@ -161,27 +162,68 @@ class UltimateWeatherCleaner:
         mask = self.df['Temp_Min'] > self.df['Temp_Max']
         self.df.loc[mask, ['Temp_Min', 'Temp_Max']] = self.df.loc[mask, ['Temp_Max', 'Temp_Min']].values
         
-        # 4. Outliers via IQR
-        for col in self.df.select_dtypes(include=[np.number]).columns:
-            Q1, Q3 = self.df[col].quantile(0.25), self.df[col].quantile(0.75)
-            IQR = Q3 - Q1
-            lower, upper = Q1 - 1.5 * IQR, Q3 + 1.5 * IQR
-            self.df.loc[(self.df[col] < lower) | (self.df[col] > upper), col] = np.nan
+        # 4. Outliers
+        outlier_method = self.options.get('outlier_method', 'IQR (Interquartile Range)')
+        if outlier_method == "IQR (Interquartile Range)":
+            for col in self.df.select_dtypes(include=[np.number]).columns:
+                Q1, Q3 = self.df[col].quantile(0.25), self.df[col].quantile(0.75)
+                IQR = Q3 - Q1
+                lower, upper = Q1 - 1.5 * IQR, Q3 + 1.5 * IQR
+                self.df.loc[(self.df[col] < lower) | (self.df[col] > upper), col] = np.nan
+        elif outlier_method == "Z-Score":
+            for col in self.df.select_dtypes(include=[np.number]).columns:
+                mean, std = self.df[col].mean(), self.df[col].std()
+                if pd.notna(std) and std != 0:
+                    z_scores = (self.df[col] - mean) / std
+                    self.df.loc[z_scores.abs() > 3, col] = np.nan
 
         # 5. Missing Value Imputation
         self.df = self.df.assign(Wind_Dir_Label=self.df['Wind_Dir_Label'].ffill().bfill())
-        self.df = self.df.interpolate(method='time', limit_direction='both').ffill().bfill()
+        imputation_method = self.options.get('imputation_method', 'Interpolate (Time)')
+        numeric_cols = self.df.select_dtypes(include=[np.number]).columns
+
+        if imputation_method == "Interpolate (Time)":
+            self.df = self.df.interpolate(method='time', limit_direction='both').ffill().bfill()
+        elif imputation_method == "Forward/Backward Fill":
+            self.df = self.df.ffill().bfill()
+        elif imputation_method == "Mean":
+            self.df[numeric_cols] = self.df[numeric_cols].fillna(self.df[numeric_cols].mean())
+            self.df = self.df.ffill().bfill() # Fallback for non-numeric/edge cases
+        elif imputation_method == "Median":
+            self.df[numeric_cols] = self.df[numeric_cols].fillna(self.df[numeric_cols].median())
+            self.df = self.df.ffill().bfill()
+        elif imputation_method == "Zero":
+            self.df[numeric_cols] = self.df[numeric_cols].fillna(0)
+            self.df = self.df.ffill().bfill()
 
         # 6. Feature Engineering
-        dir_map = {'N':0, 'NE':45, 'E':90, 'SE':135, 'S':180, 'SW':225, 'W':270, 'NW':315}
-        wind_deg = self.df['Wind_Dir_Label'].map(dir_map).fillna(0)
-        self.df['Wind_Dir_Sin'] = np.sin(2 * np.pi * wind_deg / 360)
-        self.df['Wind_Dir_Cos'] = np.cos(2 * np.pi * wind_deg / 360)
-        self.df['Month_Sin'] = np.sin(2 * np.pi * self.df.index.month / 12)
+        if self.options.get('enable_cyclical', True):
+            dir_map = {'N':0, 'NE':45, 'E':90, 'SE':135, 'S':180, 'SW':225, 'W':270, 'NW':315}
+            wind_deg = self.df['Wind_Dir_Label'].map(dir_map).fillna(0)
+            self.df['Wind_Dir_Sin'] = np.sin(2 * np.pi * wind_deg / 360)
+            self.df['Wind_Dir_Cos'] = np.cos(2 * np.pi * wind_deg / 360)
+            self.df['Month_Sin'] = np.sin(2 * np.pi * self.df.index.month / 12)
+            self.df['Month_Cos'] = np.cos(2 * np.pi * self.df.index.month / 12)
+
+        if self.options.get('enable_rolling', False):
+            for col in ['Temp_Max', 'Temp_Min', 'Rainfall_mm']:
+                if col in self.df.columns:
+                    self.df[f'{col}_Roll_7D'] = self.df[col].rolling(window=7, min_periods=1).mean()
+                    self.df[f'{col}_Roll_30D'] = self.df[col].rolling(window=30, min_periods=1).mean()
+
+        if self.options.get('enable_lags', False):
+            for col in ['Temp_Max', 'Rainfall_mm']:
+                if col in self.df.columns:
+                    self.df[f'{col}_Lag_1'] = self.df[col].shift(1)
+                    self.df[f'{col}_Lag_2'] = self.df[col].shift(2)
+            # Impute newly created NaNs from lag
+            self.df = self.df.bfill()
 
         # 7. Normalization
         self.normalized_df = self.df.copy()
-        for col in self.normalized_df.select_dtypes(include=[np.number]).columns:
+        # Drop categorical features before normalization if any slipped through
+        cols_to_norm = self.normalized_df.select_dtypes(include=[np.number]).columns
+        for col in cols_to_norm:
             min_val, max_val = self.normalized_df[col].min(), self.normalized_df[col].max()
             if max_val != min_val:
                 self.normalized_df[col] = (self.normalized_df[col] - min_val) / (max_val - min_val)
@@ -199,16 +241,35 @@ class UltimateWeatherCleaner:
 st.title("🌩️ Integrative ML Weather Data Cleaner")
 st.markdown("Automated processing and formatting for the Western Region of Kenya (RSD Compliant)")
 
+# Sidebar Settings
+st.sidebar.header("⚙️ Data Processing Engine")
+outlier_method = st.sidebar.selectbox("Outlier Handling Method", ["IQR (Interquartile Range)", "Z-Score", "None"])
+imputation_method = st.sidebar.selectbox("Missing Value Imputation", ["Interpolate (Time)", "Forward/Backward Fill", "Mean", "Median", "Zero"])
+
+st.sidebar.markdown("---")
+st.sidebar.header("🔧 Feature Engineering")
+enable_cyclical = st.sidebar.checkbox("Cyclical Time Features (Sin/Cos)", value=True)
+enable_rolling = st.sidebar.checkbox("Rolling Averages (7D & 30D)", value=False)
+enable_lags = st.sidebar.checkbox("Lag Features (t-1, t-2)", value=False)
+
+cleaner_options = {
+    'outlier_method': outlier_method,
+    'imputation_method': imputation_method,
+    'enable_cyclical': enable_cyclical,
+    'enable_rolling': enable_rolling,
+    'enable_lags': enable_lags
+}
+
 uploaded_file = st.file_uploader("Drop your raw messy CSV/Excel file here", type=['csv', 'xlsx'])
 
 if uploaded_file is not None:
     with st.spinner("Parsing dynamic structure & repairing datasets..."):
-        cleaner = UltimateWeatherCleaner(uploaded_file)
+        cleaner = UltimateWeatherCleaner(uploaded_file, options=cleaner_options)
         clean_df, norm_df = cleaner.execute()
         
     st.success("✅ Data Cleaned, Engineered, and Normalized Successfully!")
 
-    tab1, tab2 = st.tabs(["🗄️ Datasets & Downloads", "📈 15 Weather Analytics & Graphs"])
+    tab1, tab2, tab3 = st.tabs(["🗄️ Datasets & Downloads", "📈 15 Weather Analytics & Graphs", "📊 Advanced Interactive EDA"])
 
     with tab1:
         c_left, c_right = st.columns(2)
@@ -308,3 +369,38 @@ if uploaded_file is not None:
             fig_wind_ts = px.area(clean_df, y='Wind_Speed', color_discrete_sequence=['#00b09b'])
             fig_wind_ts.update_layout(**layout_transparent)
             st.plotly_chart(fig_wind_ts, use_container_width=True)
+
+    with tab3:
+        st.markdown("### 📊 Advanced Interactive Exploratory Data Analysis")
+        st.markdown("Explore your cleaned dataset with custom visualizations.")
+
+        numeric_cols = clean_df.select_dtypes(include=[np.number]).columns.tolist()
+
+        c11, c12 = st.columns(2)
+        with c11:
+            st.markdown("#### 🔹 Custom Scatter / Line Plot")
+            x_col = st.selectbox("Select X-axis:", ["Datetime"] + numeric_cols, index=0)
+            y_col = st.selectbox("Select Y-axis:", numeric_cols, index=0)
+            plot_type = st.radio("Plot Type:", ["Scatter Plot", "Line Plot"], horizontal=True)
+
+            if plot_type == "Scatter Plot":
+                if x_col == "Datetime":
+                    fig_custom_scatter = px.scatter(clean_df, x=clean_df.index, y=y_col, color_discrete_sequence=['#ff0844'])
+                else:
+                    fig_custom_scatter = px.scatter(clean_df, x=x_col, y=y_col, color_discrete_sequence=['#ff0844'])
+            else:
+                if x_col == "Datetime":
+                    fig_custom_scatter = px.line(clean_df, x=clean_df.index, y=y_col, color_discrete_sequence=['#ff0844'])
+                else:
+                    fig_custom_scatter = px.line(clean_df, x=x_col, y=y_col, color_discrete_sequence=['#ff0844'])
+            fig_custom_scatter.update_layout(**layout_transparent)
+            st.plotly_chart(fig_custom_scatter, use_container_width=True)
+
+        with c12:
+            st.markdown("#### 🔹 Custom Distribution (Histogram)")
+            hist_col = st.selectbox("Select Feature for Histogram:", numeric_cols, index=0)
+            bins = st.slider("Number of Bins:", min_value=10, max_value=100, value=30, step=5)
+
+            fig_custom_hist = px.histogram(clean_df, x=hist_col, nbins=bins, color_discrete_sequence=['#00f2fe'])
+            fig_custom_hist.update_layout(**layout_transparent)
+            st.plotly_chart(fig_custom_hist, use_container_width=True)
