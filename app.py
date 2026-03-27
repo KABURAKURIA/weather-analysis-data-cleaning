@@ -196,44 +196,10 @@ class UltimateWeatherCleaner:
             self.df[numeric_cols] = self.df[numeric_cols].fillna(0)
             self.df = self.df.ffill().bfill()
 
-        # 6. Feature Engineering
-        if self.options.get('enable_cyclical', True):
-            dir_map = {'N':0, 'NE':45, 'E':90, 'SE':135, 'S':180, 'SW':225, 'W':270, 'NW':315}
-            wind_deg = self.df['Wind_Dir_Label'].map(dir_map).fillna(0)
-            self.df['Wind_Dir_Sin'] = np.sin(2 * np.pi * wind_deg / 360)
-            self.df['Wind_Dir_Cos'] = np.cos(2 * np.pi * wind_deg / 360)
-            self.df['Month_Sin'] = np.sin(2 * np.pi * self.df.index.month / 12)
-            self.df['Month_Cos'] = np.cos(2 * np.pi * self.df.index.month / 12)
-
-        if self.options.get('enable_rolling', False):
-            for col in ['Temp_Max', 'Temp_Min', 'Rainfall_mm']:
-                if col in self.df.columns:
-                    self.df[f'{col}_Roll_7D'] = self.df[col].rolling(window=7, min_periods=1).mean()
-                    self.df[f'{col}_Roll_30D'] = self.df[col].rolling(window=30, min_periods=1).mean()
-
-        if self.options.get('enable_lags', False):
-            for col in ['Temp_Max', 'Rainfall_mm']:
-                if col in self.df.columns:
-                    self.df[f'{col}_Lag_1'] = self.df[col].shift(1)
-                    self.df[f'{col}_Lag_2'] = self.df[col].shift(2)
-            # Impute newly created NaNs from lag
-            self.df = self.df.bfill()
-
-        # 7. Normalization
-        self.normalized_df = self.df.copy()
-        # Drop categorical features before normalization if any slipped through
-        cols_to_norm = self.normalized_df.select_dtypes(include=[np.number]).columns
-        for col in cols_to_norm:
-            min_val, max_val = self.normalized_df[col].min(), self.normalized_df[col].max()
-            if max_val != min_val:
-                self.normalized_df[col] = (self.normalized_df[col] - min_val) / (max_val - min_val)
-            else:
-                self.normalized_df[col] = 0.0
-
     def execute(self):
         self.smart_structural_parsing()
         self.process_data()
-        return self.df, self.normalized_df
+        return self.df
 
 # ==========================================
 # 3. APP EXECUTION
@@ -246,18 +212,9 @@ st.sidebar.header("⚙️ Data Processing Engine")
 outlier_method = st.sidebar.selectbox("Outlier Handling Method", ["IQR (Interquartile Range)", "Z-Score", "None"])
 imputation_method = st.sidebar.selectbox("Missing Value Imputation", ["Interpolate (Time)", "Forward/Backward Fill", "Mean", "Median", "Zero"])
 
-st.sidebar.markdown("---")
-st.sidebar.header("🔧 Feature Engineering")
-enable_cyclical = st.sidebar.checkbox("Cyclical Time Features (Sin/Cos)", value=True)
-enable_rolling = st.sidebar.checkbox("Rolling Averages (7D & 30D)", value=False)
-enable_lags = st.sidebar.checkbox("Lag Features (t-1, t-2)", value=False)
-
 cleaner_options = {
     'outlier_method': outlier_method,
-    'imputation_method': imputation_method,
-    'enable_cyclical': enable_cyclical,
-    'enable_rolling': enable_rolling,
-    'enable_lags': enable_lags
+    'imputation_method': imputation_method
 }
 
 uploaded_file = st.file_uploader("Drop your raw messy CSV/Excel file here", type=['csv', 'xlsx'])
@@ -265,142 +222,10 @@ uploaded_file = st.file_uploader("Drop your raw messy CSV/Excel file here", type
 if uploaded_file is not None:
     with st.spinner("Parsing dynamic structure & repairing datasets..."):
         cleaner = UltimateWeatherCleaner(uploaded_file, options=cleaner_options)
-        clean_df, norm_df = cleaner.execute()
+        clean_df = cleaner.execute()
         
-    st.success("✅ Data Cleaned, Engineered, and Normalized Successfully!")
+    st.success("✅ Data Cleaned Successfully!")
 
-    tab1, tab2, tab3 = st.tabs(["🗄️ Datasets & Downloads", "📈 15 Weather Analytics & Graphs", "📊 Advanced Interactive EDA"])
-
-    with tab1:
-        c_left, c_right = st.columns(2)
-        with c_left:
-            st.markdown("### 🔹 Standard Cleaned Data")
-            st.dataframe(clean_df.head(50), use_container_width=True)
-            st.download_button("📥 Download Clean CSV", data=clean_df.to_csv().encode('utf-8'), file_name="Cleaned_Weather.csv", mime="text/csv")
-        
-        with c_right:
-            st.markdown("### 🔹 ML Normalized [0,1]")
-            st.dataframe(norm_df.head(50), use_container_width=True)
-            st.download_button("📥 Download Normalized CSV", data=norm_df.to_csv().encode('utf-8'), file_name="Normalized_Weather.csv", mime="text/csv")
-
-    with tab2:
-        st.markdown("### Meteorological Insights Dashboard")
-        
-        # --- 5 CALCULATION METRICS ---
-        col1, col2, col3, col4, col5 = st.columns(5)
-        col1.metric("1. Usable Records", f"{len(clean_df):,}")
-        col2.metric("2. Imputation Success", "100%")
-        col3.metric("3. Peak Temp", f"{clean_df['Temp_Max'].max():.1f} °C")
-        col4.metric("4. Lowest Temp", f"{clean_df['Temp_Min'].min():.1f} °C")
-        col5.metric("5. Total Rain", f"{clean_df['Rainfall_mm'].sum():,.0f} mm")
-        
-        layout_transparent = dict(paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)', font=dict(color='white'))
-
-        st.divider()
-
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("##### 6. Temp Max & Min Trends")
-            fig_temp = px.line(clean_df, y=['Temp_Max', 'Temp_Min'], color_discrete_sequence=['#ff0844', '#00f2fe'])
-            fig_temp.update_layout(**layout_transparent)
-            st.plotly_chart(fig_temp, use_container_width=True)
-
-        with c2:
-            st.markdown("##### 7. Daily Rainfall Distribution")
-            fig_rain = px.histogram(clean_df[clean_df['Rainfall_mm']>0], x="Rainfall_mm", nbins=40, color_discrete_sequence=['#00f2fe'])
-            fig_rain.update_layout(**layout_transparent)
-            st.plotly_chart(fig_rain, use_container_width=True)
-
-        c3, c4 = st.columns(2)
-        with c3:
-            st.markdown("##### 8. Feature Correlation Matrix")
-            corr = clean_df.select_dtypes(include=[np.number]).corr()
-            fig_corr = px.imshow(corr, color_continuous_scale='Turbo') # Vibrant color scale
-            fig_corr.update_layout(**layout_transparent)
-            st.plotly_chart(fig_corr, use_container_width=True)
-
-        with c4:
-            st.markdown("##### 9. Prevailing Wind Directions")
-            if 'Wind_Dir_Label' in clean_df.columns:
-                wind_counts = clean_df['Wind_Dir_Label'].value_counts()
-                fig_wind = px.bar(x=wind_counts.index, y=wind_counts.values, color_discrete_sequence=['#f9d423'])
-            else:
-                fig_wind = px.bar(title="Data Unavailable")
-            fig_wind.update_layout(**layout_transparent)
-            st.plotly_chart(fig_wind, use_container_width=True)
-            
-        c5, c6 = st.columns(2)
-        with c5:
-            st.markdown("##### 10. Sensor Data Dispersion")
-            fig_box = px.box(clean_df, y=['Temp_Max', 'Temp_Min', 'Humidity_0900'], points="all", color_discrete_sequence=['#00b09b'])
-            fig_box.update_layout(**layout_transparent)
-            st.plotly_chart(fig_box, use_container_width=True)
-
-        with c6:
-            st.markdown("##### 11. Sunshine vs Temp Max")
-            fig_scat = px.scatter(clean_df, x="Sunshine_Hrs", y="Temp_Max", color="Humidity_1500", color_continuous_scale='Plasma')
-            fig_scat.update_layout(**layout_transparent)
-            st.plotly_chart(fig_scat, use_container_width=True)
-
-        c7, c8 = st.columns(2)
-        with c7:
-            st.markdown("##### 12. Monthly Avg Temperatures")
-            monthly_temp = clean_df.groupby(clean_df.index.month)['Temp_Max'].mean()
-            fig_m_temp = px.bar(x=monthly_temp.index, y=monthly_temp.values, color_discrete_sequence=['#ff0844'])
-            fig_m_temp.update_layout(**layout_transparent, xaxis_title="Month", yaxis_title="Temp °C")
-            st.plotly_chart(fig_m_temp, use_container_width=True)
-
-        with c8:
-            st.markdown("##### 13. Humidity (0900 vs 1500)")
-            fig_hum = px.line(clean_df, y=['Humidity_0900', 'Humidity_1500'], color_discrete_sequence=['#f9d423', '#00f2fe'])
-            fig_hum.update_layout(**layout_transparent)
-            st.plotly_chart(fig_hum, use_container_width=True)
-            
-        c9, c10 = st.columns(2)
-        with c9:
-            st.markdown("##### 14. Yearly Cumulative Rainfall")
-            yearly_rain = clean_df.groupby(clean_df.index.year)['Rainfall_mm'].sum()
-            fig_y_rain = px.bar(x=yearly_rain.index, y=yearly_rain.values, color_discrete_sequence=['#00f2fe'])
-            fig_y_rain.update_layout(**layout_transparent, xaxis_title="Year", yaxis_title="Total Rain (mm)")
-            st.plotly_chart(fig_y_rain, use_container_width=True)
-
-        with c10:
-            st.markdown("##### 15. Wind Speed Tracking")
-            fig_wind_ts = px.area(clean_df, y='Wind_Speed', color_discrete_sequence=['#00b09b'])
-            fig_wind_ts.update_layout(**layout_transparent)
-            st.plotly_chart(fig_wind_ts, use_container_width=True)
-
-    with tab3:
-        st.markdown("### 📊 Advanced Interactive Exploratory Data Analysis")
-        st.markdown("Explore your cleaned dataset with custom visualizations.")
-
-        numeric_cols = clean_df.select_dtypes(include=[np.number]).columns.tolist()
-
-        c11, c12 = st.columns(2)
-        with c11:
-            st.markdown("#### 🔹 Custom Scatter / Line Plot")
-            x_col = st.selectbox("Select X-axis:", ["Datetime"] + numeric_cols, index=0)
-            y_col = st.selectbox("Select Y-axis:", numeric_cols, index=0)
-            plot_type = st.radio("Plot Type:", ["Scatter Plot", "Line Plot"], horizontal=True)
-
-            if plot_type == "Scatter Plot":
-                if x_col == "Datetime":
-                    fig_custom_scatter = px.scatter(clean_df, x=clean_df.index, y=y_col, color_discrete_sequence=['#ff0844'])
-                else:
-                    fig_custom_scatter = px.scatter(clean_df, x=x_col, y=y_col, color_discrete_sequence=['#ff0844'])
-            else:
-                if x_col == "Datetime":
-                    fig_custom_scatter = px.line(clean_df, x=clean_df.index, y=y_col, color_discrete_sequence=['#ff0844'])
-                else:
-                    fig_custom_scatter = px.line(clean_df, x=x_col, y=y_col, color_discrete_sequence=['#ff0844'])
-            fig_custom_scatter.update_layout(**layout_transparent)
-            st.plotly_chart(fig_custom_scatter, use_container_width=True)
-
-        with c12:
-            st.markdown("#### 🔹 Custom Distribution (Histogram)")
-            hist_col = st.selectbox("Select Feature for Histogram:", numeric_cols, index=0)
-            bins = st.slider("Number of Bins:", min_value=10, max_value=100, value=30, step=5)
-
-            fig_custom_hist = px.histogram(clean_df, x=hist_col, nbins=bins, color_discrete_sequence=['#00f2fe'])
-            fig_custom_hist.update_layout(**layout_transparent)
-            st.plotly_chart(fig_custom_hist, use_container_width=True)
+    st.markdown("### 🔹 Standard Cleaned Data")
+    st.dataframe(clean_df.head(50), use_container_width=True)
+    st.download_button("📥 Download Clean CSV", data=clean_df.to_csv().encode('utf-8'), file_name="Cleaned_Weather.csv", mime="text/csv")
