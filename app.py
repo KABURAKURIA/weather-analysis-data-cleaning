@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import plotly.express as px
 import warnings
 
 warnings.filterwarnings('ignore')
@@ -183,7 +182,8 @@ class UltimateWeatherCleaner:
         numeric_cols = self.df.select_dtypes(include=[np.number]).columns
 
         if imputation_method == "Interpolate (Time)":
-            self.df = self.df.interpolate(method='time', limit_direction='both').ffill().bfill()
+            self.df[numeric_cols] = self.df[numeric_cols].interpolate(method='time', limit_direction='both')
+            self.df = self.df.ffill().bfill()
         elif imputation_method == "Forward/Backward Fill":
             self.df = self.df.ffill().bfill()
         elif imputation_method == "Mean":
