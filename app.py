@@ -352,6 +352,10 @@ class SmartWeatherCleaner:
         for col in self.df.columns:
             if col == 'Wind_Dir_Label': continue
             
+            # CRITICAL FIX: Convert the column to object type temporarily
+            # This prevents PyArrow/String backend TypeError when rewriting elements to float/NaN
+            self.df[col] = self.df[col].astype(object)
+            
             for dt, val in self.df[col].items():
                 if pd.isna(val):
                     continue
