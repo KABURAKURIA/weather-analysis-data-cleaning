@@ -109,7 +109,7 @@ def generate_messy_sample():
 # ==========================================
 # PDF REPORT GENERATOR WITH REPORTLAB
 # ==========================================
-def generate_pdf_report(audit_log_df):
+def generate_pdf_report(audit_log_df, summary_metrics):
     """Generates a structured, wrapped PDF report from the audit dataframe."""
     buffer = BytesIO()
     doc = SimpleDocTemplate(
@@ -141,7 +141,17 @@ def generate_pdf_report(audit_log_df):
         fontSize=10,
         leading=14,
         textColor=colors.HexColor('#444444'),
-        spaceAfter=15
+        spaceAfter=12
+    )
+
+    meta_style = ParagraphStyle(
+        'DocMeta',
+        parent=styles['Normal'],
+        fontName='Helvetica-Bold',
+        fontSize=9,
+        leading=13,
+        textColor=colors.HexColor('#2c3e50'),
+        spaceAfter=4
     )
     
     th_style = ParagraphStyle(
@@ -164,7 +174,13 @@ def generate_pdf_report(audit_log_df):
 
     story.append(Paragraph("Smart Weather Cleaner - Data Cleaning Report", title_style))
     story.append(Paragraph("Below is the record of structural corrections, value modifications, outlier removals, and data imputation steps.", subtitle_style))
-    story.append(Spacer(1, 5))
+    
+    # Render structural row counts in the PDF
+    story.append(Paragraph(f"<b>Dataset Row Summary:</b>", meta_style))
+    story.append(Paragraph(f"• Total Rows in Raw Dataset: {summary_metrics['raw_rows']}", subtitle_style))
+    story.append(Paragraph(f"• Total Rows in Cleaned Dataset: {summary_metrics['clean_rows']}", subtitle_style))
+    story.append(Paragraph(f"• Total Rows Excluded/Removed: {summary_metrics['removed_rows']}", subtitle_style))
+    story.append(Spacer(1, 10))
 
     headers = ["Row/Date", "Column", "Original Value", "Action Taken", "Reason why removed/changed"]
     table_data = [[Paragraph(h, th_style) for h in headers]]
@@ -179,7 +195,7 @@ def generate_pdf_report(audit_log_df):
         ]
         table_data.append(row_cells)
 
-    # Calculate column widths to fit Letter size page width (8.5 * 72 - 72 = 540 pt)
+    # Calculate column widths to fit Letter size page width (540 pt available printable area)
     col_widths = [75, 75, 80, 100, 210]
     
     t = Table(table_data, colWidths=col_widths, repeatRows=1)
@@ -217,7 +233,11 @@ class SmartWeatherCleaner:
             self.raw_df = pd.read_csv(data_source, header=None, low_memory=False)
         else:
             self.raw_df = pd.read_excel(data_source, header=None)
+        
         self.options = options or {}
+        self.raw_rows_count = len(self.raw_df)  # Track raw dataset row count
+        self.cleaned_rows_count = 0
+        self.rows_removed_count = 0
         self.structural_skipped_rows = []
         self.audit_log = []
 
@@ -352,8 +372,7 @@ class SmartWeatherCleaner:
         for col in self.df.columns:
             if col == 'Wind_Dir_Label': continue
             
-            # CRITICAL FIX: Convert the column to object type temporarily
-            # This prevents PyArrow/String backend TypeError when rewriting elements to float/NaN
+            # Temporary cast to object to allow string standardisation and floats coexisting
             self.df[col] = self.df[col].astype(object)
             
             for dt, val in self.df[col].items():
@@ -484,6 +503,8 @@ class SmartWeatherCleaner:
     def execute(self):
         self.smart_structural_parsing()
         self.process_data()
+        self.cleaned_rows_count = len(self.df)
+        self.rows_removed_count = self.raw_rows_count - self.cleaned_rows_count
         return self.df
 
 # ==========================================
@@ -545,10 +566,28 @@ if data_to_process is not None:
     with tab2:
         audit_log = getattr(cleaner, 'audit_log', [])
         if audit_log:
-            audit_df = pd.DataFrame(audit_log)
+            # 1. Structural Metric Highlights
+            st.markdown("### 📊 Dataset Volume Metrics")
+            m_col1, m_col2, m_col3 = st.columns(3)
+            m_col1.metric("Raw Dataset Rows", cleaner.raw_rows_count)
+            m_col2.metric("Cleaned Dataset Rows", cleaner.cleaned_rows_count)
+            m_col3.metric("Rows Excluded / Removed", cleaner.rows_removed_count)
+            
+            st.markdown("---")
+            
+            # 2. Detailed Audit Table
             st.markdown("### Record of Corrections and Removals")
             st.markdown("The following table details every piece of data that was changed, removed, or structure-filtered, along with the reasoning behind the action.")
+            
+            audit_df = pd.DataFrame(audit_log)
             st.dataframe(audit_df, use_container_width=True)
+            
+            # Pack summary parameters for the PDF report
+            pdf_summary = {
+                'raw_rows': cleaner.raw_rows_count,
+                'clean_rows': cleaner.cleaned_rows_count,
+                'removed_rows': cleaner.rows_removed_count
+            }
             
             # Action Buttons: CSV Audit download & PDF Audit download
             col_b1, col_b2 = st.columns(2)
@@ -562,7 +601,7 @@ if data_to_process is not None:
             with col_b2:
                 if REPORTLAB_AVAILABLE:
                     try:
-                        pdf_data = generate_pdf_report(audit_df)
+                        pdf_data = generate_pdf_report(audit_df, pdf_summary)
                         st.download_button(
                             label="📄 Download Audit Log as PDF",
                             data=pdf_data,
