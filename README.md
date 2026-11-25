@@ -1,15 +1,10 @@
-# 🌩️ Smart Weather Analytics & Data Cleaning Platform
-
-[![Streamlit](https://img.shields.io/badge/Streamlit-Glassmorphic%20UI-FF4B4B.svg?logo=streamlit&logoColor=white)](https://streamlit.io/)
-[![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Analytics](https://img.shields.io/badge/Field-Meteorological%20Analytics-blue.svg)](https://github.com/KABURAKURIA/weather-analysis-data-cleaning)
+# Smart Weather Analytics & Data Cleaning Platform
 
 A modern meteorological data analytics, telemetry cleaning, and automated anomaly detection platform featuring an interactive animated glassmorphic Streamlit web interface and automated executive PDF reporting.
 
 ---
 
-## ☀️ Features & Analytical Capabilities
+## Features & Analytical Capabilities
 
 - **Sensor Telemetry Cleaning**: Automated cleaning of temperature, humidity, atmospheric pressure, wind speed, and precipitation logs.
 - **Statistical Anomaly Detection**: Z-score and IQR-based filtering for weather sensor transmission spikes and hardware dropout.
@@ -19,7 +14,7 @@ A modern meteorological data analytics, telemetry cleaning, and automated anomal
 
 ---
 
-## 📊 Telemetry Cleaning Rules
+## Telemetry Cleaning Rules
 
 | Meteorological Metric | Physiological/Physical Boundaries | Remediation Method |
 | :--- | :--- | :--- |
@@ -31,7 +26,7 @@ A modern meteorological data analytics, telemetry cleaning, and automated anomal
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ```bash
 # Clone the repository
@@ -47,7 +42,7 @@ streamlit run app.py
 
 ---
 
-## 🛠️ Stack
+## Stack
 
 - **Language**: Python 3.9+
 - **Data Analytics**: Pandas, NumPy
@@ -56,6 +51,6 @@ streamlit run app.py
 
 ---
 
-## 📄 License
+## License
 
 MIT License.
